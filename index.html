@@ -48,16 +48,6 @@
 
   <main class="layout">
     <section class="panel status-panel">
-      <div class="status-column busy">
-        <div class="status-header">
-          <div>
-            <p class="status-eyebrow">Live status</p>
-            <h2>Using Now</h2>
-          </div>
-          <div class="status-count" id="usingCount">0</div>
-        </div>
-        <div id="usingList" class="room-list" aria-live="polite"></div>
-      </div>
       <div class="status-column free">
         <div class="status-header">
           <div>
@@ -67,6 +57,16 @@
           <div class="status-count" id="emptyCount">0</div>
         </div>
         <div id="emptyList" class="room-list" aria-live="polite"></div>
+      </div>
+      <div class="status-column busy">
+        <div class="status-header">
+          <div>
+            <p class="status-eyebrow">Live status</p>
+            <h2>Using Now</h2>
+          </div>
+          <div class="status-count" id="usingCount">0</div>
+        </div>
+        <div id="usingList" class="room-list" aria-live="polite"></div>
       </div>
     </section>
 
