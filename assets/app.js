@@ -290,6 +290,8 @@ function renderTimeline(room, dayCode) {
     return;
   }
 
+  const showLiveProgress = state.timelineMode === 'today' && dayCode === state.hkNow.dayCode;
+
   entries.forEach((section) => {
     const slot = document.createElement('div');
     slot.className = 'timeline-slot';
@@ -298,7 +300,9 @@ function renderTimeline(room, dayCode) {
       slot.classList.add('active');
     }
 
-    const fillPercent = ((section.endMinutes - section.startMinutes) / (24 * 60)) * 100;
+    const widthPercent = showLiveProgress
+      ? getSectionProgressPercent(section, state.hkNow.minutes)
+      : ((section.endMinutes - section.startMinutes) / (24 * 60)) * 100;
 
     const header = document.createElement('div');
     header.className = 'slot-header';
@@ -320,7 +324,7 @@ function renderTimeline(room, dayCode) {
     const bar = document.createElement('div');
     bar.className = 'slot-bar';
     const fill = document.createElement('span');
-    fill.style.setProperty('--fill', `${fillPercent.toFixed(2)}%`);
+    fill.style.setProperty('--fill', `${widthPercent.toFixed(2)}%`);
     bar.appendChild(fill);
 
     slot.appendChild(header);
@@ -330,6 +334,21 @@ function renderTimeline(room, dayCode) {
 
     ui.timelineSlots.appendChild(slot);
   });
+}
+
+function getSectionProgressPercent(section, minutesNow) {
+  if (!Number.isFinite(section.durationMinutes) || section.durationMinutes <= 0) {
+    return minutesNow >= section.endMinutes ? 100 : 0;
+  }
+  if (minutesNow <= section.startMinutes) {
+    return 0;
+  }
+  if (minutesNow >= section.endMinutes) {
+    return 100;
+  }
+  const elapsed = minutesNow - section.startMinutes;
+  const percent = (elapsed / section.durationMinutes) * 100;
+  return Math.min(Math.max(percent, 0), 100);
 }
 
 function renderWeekGrid(room) {

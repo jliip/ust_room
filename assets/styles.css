@@ -167,6 +167,19 @@ p {
   font-size: 1rem;
 }
 
+.control-item select {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: transparent;
+  appearance: none;
+  box-shadow: none;
+}
+
+.control-item select option {
+  color: var(--text);
+  background-color: #050712;
+}
+
 .control-item input:focus,
 .control-item select:focus {
   outline: none;
@@ -394,6 +407,7 @@ p {
   border-radius: inherit;
   background: linear-gradient(90deg, var(--accent), var(--accent-warm));
   width: var(--fill, 0%);
+  transition: width 0.6s ease;
 }
 
 .week-grid {
