@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UST Empty Room Radar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="hero-copy">
+      <p class="eyebrow">HKUST · Spring 2025/26</p>
+      <h1>Find an Empty Room Right Now</h1>
+      <p class="lede">Live course data + real-time availability so you can grab a study spot without wandering across campus.</p>
+      <div class="meta-grid">
+        <div>
+          <span class="meta-label">Hong Kong time</span>
+          <p class="meta-value" id="hkClock">--:--</p>
+        </div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      <button id="refreshButton" class="ghost-button" type="button">Refresh data</button>
+      <p class="status-note" id="statusNote">Using live schedule.json</p>
+    </div>
+  </header>
+
+  <section class="panel control-panel">
+    <div class="control-item">
+      <label for="roomSearch">Search rooms or courses</label>
+      <input id="roomSearch" type="search" placeholder="e.g. Rm 4503 or MATH 1013" autocomplete="off" />
+    </div>
+    <div class="control-item">
+      <label for="daySelect">Focus day</label>
+      <select id="daySelect"></select>
+    </div>
+    <div class="control-item">
+      <label for="timelineMode">Timeline view</label>
+      <select id="timelineMode">
+        <option value="today" selected>Today only</option>
+        <option value="selected">Use focus day</option>
+      </select>
+    </div>
+  </section>
+
+  <main class="layout">
+    <section class="panel status-panel">
+      <div class="status-column busy">
+        <div class="status-header">
+          <div>
+            <p class="status-eyebrow">Live status</p>
+            <h2>Using Now</h2>
+          </div>
+          <div class="status-count" id="usingCount">0</div>
+        </div>
+        <div id="usingList" class="room-list" aria-live="polite"></div>
+      </div>
+      <div class="status-column free">
+        <div class="status-header">
+          <div>
+            <p class="status-eyebrow">Live status</p>
+            <h2>Empty Now</h2>
+          </div>
+          <div class="status-count" id="emptyCount">0</div>
+        </div>
+        <div id="emptyList" class="room-list" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="panel detail-panel" aria-live="polite">
+      <div id="detailEmptyState" class="detail-empty">
+        <h2>Pick any room</h2>
+        <p>Tap a card to see its full-day timeline and week snapshot.</p>
+      </div>
+      <div id="detailContent" class="detail-content hidden">
+        <div class="detail-heading">
+          <div>
+            <p class="eyebrow" id="detailStatusLabel">Status</p>
+            <h2 id="detailRoomName">Room</h2>
+          </div>
+          <span class="pill" id="detailStatusPill">—</span>
+        </div>
+        <p class="detail-sub" id="detailSubtext">—</p>
+
+        <div class="detail-highlights">
+          <div>
+            <p class="meta-label">Next change</p>
+            <p class="meta-value" id="detailNextChange">—</p>
+          </div>
+          <div>
+            <p class="meta-label">Upcoming class</p>
+            <p class="meta-value" id="detailUpcoming">—</p>
+          </div>
+          <div>
+            <p class="meta-label">Total slots today</p>
+            <p class="meta-value" id="detailSlotCount">—</p>
+          </div>
+        </div>
+
+        <div class="timeline">
+          <div class="timeline-heading">
+            <div>
+              <p class="eyebrow">Room timeline</p>
+              <h3 id="timelineTitle">Today</h3>
+            </div>
+            <p class="meta-label" id="timelineSub">HK time</p>
+          </div>
+          <div id="timelineSlots" class="timeline-slots"></div>
+        </div>
+
+        <div class="week">
+          <div class="timeline-heading">
+            <div>
+              <p class="eyebrow">Week overview</p>
+              <h3>Mon → Sun</h3>
+            </div>
+            <p class="meta-label">Course slots grouped by weekday</p>
+          </div>
+          <div id="weekGrid" class="week-grid"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Data sourced from HKUST course offerings via scraper.py. Built for GitHub Pages + local `python -m http.server`.</p>
+  </footer>
+
+  <script src="assets/app.js" type="module"></script>
+</body>
+</html>

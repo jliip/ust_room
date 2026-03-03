@@ -31,4 +31,5 @@ Desktop.ini
 *.tmp
 
 # Project-specific generated data
-data/schedule.json
+intro.md
+info_copy.md
