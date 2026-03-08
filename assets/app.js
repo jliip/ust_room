@@ -451,17 +451,13 @@ function isSectionActive(section, minutesNow) {
 }
 
 function formatSeatLine(section) {
-  const bits = [];
-  if (Number.isFinite(section.enrol)) {
-    bits.push(`Enrol ${section.enrol}`);
+  if (section.section) {
+    return `Section ${section.section}`;
   }
-  if (Number.isFinite(section.avail)) {
-    bits.push(`Avail ${section.avail}`);
+  if (section.course_code) {
+    return `Section info · ${section.course_code}`;
   }
-  if (Number.isFinite(section.wait) && section.wait > 0) {
-    bits.push(`Wait ${section.wait}`);
-  }
-  return bits.length ? bits.join(' • ') : 'Seat data unavailable';
+  return 'Section info unavailable';
 }
 
 function parseTimeToMinutes(timeStr) {
