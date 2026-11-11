@@ -1,134 +1,179 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UST Empty Room Radar</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f6f2">
+  <title>UST Room Radar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css?v=3">
 </head>
 <body>
   <header class="site-header">
-    <div class="hero-copy">
-      <p class="eyebrow" id="termLabel">HKUST</p>
-      <h1>Find an Empty Room Right Now</h1>
-      <p class="lede">You can grab a study spot without wandering across campus.</p>
-      <div class="meta-grid">
-        <div>
-          <span class="meta-label">Hong Kong time</span>
-          <p class="meta-value" id="hkClock">--:--</p>
+    <div class="shell header-inner">
+      <a class="brand" href="./">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span class="brand-text">
+          <strong>UST Room Radar</strong>
+          <span id="termLabel">HKUST</span>
+        </span>
+      </a>
+      <div class="header-actions">
+        <div class="campus-clock">
+          <span class="clock-label"><span class="clock-dot" aria-hidden="true"></span> HK time</span>
+          <time id="hkClock">--:--</time>
         </div>
+        <button class="outline-button refresh-button" id="refreshButton" type="button" aria-label="Refresh course data" title="Refresh course data">
+          <span class="refresh-icon" aria-hidden="true">↻</span>
+          <span class="refresh-label">Refresh</span>
+        </button>
       </div>
-    </div>
-    <div class="hero-actions">
-      <button id="refreshButton" class="ghost-button" type="button">Refresh data</button>
-      <p class="status-note" id="statusNote" role="status">Loading schedule…</p>
     </div>
   </header>
 
-  <section class="panel control-panel">
-    <div class="control-item">
-      <label for="roomSearch">Search rooms or courses</label>
-      <input id="roomSearch" type="search" placeholder="e.g. Rm 4503 or MATH 1013" autocomplete="off" />
-    </div>
-    <div class="control-item">
-      <label for="daySelect">Focus day</label>
-      <select id="daySelect"></select>
-    </div>
-    <div class="control-item">
-      <label for="timelineMode">Timeline view</label>
-      <select id="timelineMode">
-        <option value="today" selected>Today only</option>
-        <option value="selected">Use focus day</option>
-      </select>
-    </div>
-  </section>
-
-  <main class="layout">
-    <section class="panel status-panel">
-      <div class="status-column free">
-        <div class="status-header">
-          <div>
-            <p class="status-eyebrow">Live status</p>
-            <h2>Empty Now</h2>
-          </div>
-          <div class="status-count" id="emptyCount">0</div>
-        </div>
-        <div id="emptyList" class="room-list" aria-live="polite"></div>
+  <main class="shell">
+    <section class="finder" aria-labelledby="pageTitle">
+      <h1 id="pageTitle">Find an empty room</h1>
+      <div class="search-field" role="search">
+        <label class="visually-hidden" for="roomSearch">Search by room, building, lift, or course</label>
+        <span class="search-icon" aria-hidden="true"></span>
+        <input id="roomSearch" type="search" placeholder="Room, building, lift, or course" autocomplete="off" spellcheck="false">
+        <button class="icon-button clear-search" id="clearSearch" type="button" aria-label="Clear search" hidden>×</button>
       </div>
-      <div class="status-column busy">
-        <div class="status-header">
-          <div>
-            <p class="status-eyebrow">Live status</p>
-            <h2>Using Now</h2>
-          </div>
-          <div class="status-count" id="usingCount">0</div>
-        </div>
-        <div id="usingList" class="room-list" aria-live="polite"></div>
-      </div>
+      <p class="search-examples">Try 4503, CYT, Lift 19 or COMP 1021</p>
     </section>
 
-    <section class="panel detail-panel" aria-live="polite">
-      <div id="detailEmptyState" class="detail-empty">
-        <h2>Pick any room</h2>
-        <p>Tap a card to see its full-day timeline and week snapshot.</p>
-      </div>
-      <div id="detailContent" class="detail-content hidden">
-        <div class="detail-heading">
-          <div>
-            <p class="eyebrow" id="detailStatusLabel">Status</p>
-            <h2 id="detailRoomName">Room</h2>
-          </div>
-          <span class="pill" id="detailStatusPill">—</span>
-        </div>
-        <p class="detail-sub" id="detailSubtext">—</p>
+    <div class="workspace">
+      <section class="panel rooms-panel" aria-labelledby="roomsHeading">
+        <header class="rooms-header">
+          <h2 id="roomsHeading">Rooms</h2>
+          <label class="select-control">
+            <span class="visually-hidden">Filter by location</span>
+            <select id="locationFilter">
+              <option value="">All locations</option>
+            </select>
+          </label>
+        </header>
 
-        <div class="detail-highlights">
-          <div>
-            <p class="meta-label">Next change</p>
-            <p class="meta-value" id="detailNextChange">—</p>
+        <div class="rooms-controls">
+          <div class="status-filters" role="group" aria-label="Room availability">
+            <button type="button" data-availability="all" aria-pressed="true">
+              All rooms <span class="filter-count">—</span>
+            </button>
+            <button type="button" data-availability="free" aria-pressed="false">
+              <span class="status-dot free" aria-hidden="true"></span> Available <span class="filter-count">—</span>
+            </button>
+            <button type="button" data-availability="busy" aria-pressed="false">
+              <span class="status-dot busy" aria-hidden="true"></span> In use <span class="filter-count">—</span>
+            </button>
           </div>
-          <div>
-            <p class="meta-label">Upcoming class</p>
-            <p class="meta-value" id="detailUpcoming">—</p>
-          </div>
-          <div>
-            <p class="meta-label">Slots on timeline</p>
-            <p class="meta-value" id="detailSlotCount">—</p>
-          </div>
+          <label class="select-control sort-control">
+            <span class="visually-hidden">Sort rooms</span>
+            <select id="sortRooms">
+              <option value="availability">Best availability</option>
+              <option value="name">Room name</option>
+            </select>
+          </label>
         </div>
 
-        <div class="timeline">
-          <div class="timeline-heading">
-            <div>
-              <p class="eyebrow">Room timeline</p>
-              <h3 id="timelineTitle">Today</h3>
+        <div class="list-heading room-columns" id="listHeading" aria-hidden="true" hidden>
+          <span>Room</span>
+          <span>Status</span>
+          <span>Next change</span>
+        </div>
+        <ul id="roomList" class="room-list"></ul>
+        <div class="empty-state" id="resultsEmpty">
+          <p id="emptyTitle" role="status">Loading rooms…</p>
+          <button class="outline-button" id="resetFilters" type="button" hidden>Clear filters</button>
+        </div>
+        <footer class="results-footer" id="resultsFooter" hidden>
+          <p id="resultRange" aria-live="polite"></p>
+          <div class="pagination" role="group" aria-label="Room list pages">
+            <button class="outline-button icon-button" id="previousPage" type="button" aria-label="Previous page" title="Previous page">←</button>
+            <button class="outline-button icon-button" id="nextPage" type="button" aria-label="Next page" title="Next page">→</button>
+          </div>
+        </footer>
+      </section>
+
+      <aside class="room-side" id="desktopDetail">
+        <section class="panel room-detail" id="roomDetail" aria-label="Room details">
+          <div class="detail-empty" id="detailEmpty">
+            <h2>Room details</h2>
+            <p>Select a room to see its schedule.</p>
+          </div>
+          <div id="detailContent" hidden>
+            <header class="detail-heading">
+              <div>
+                <h2 id="detailRoomName"></h2>
+                <p class="detail-location" id="detailLocation"></p>
+              </div>
+              <button class="outline-button icon-button close-detail" id="closeDetail" type="button" aria-label="Close room details" autofocus>×</button>
+            </header>
+
+            <div class="availability-banner" id="detailAvailability">
+              <p class="detail-status"><span class="status-dot" aria-hidden="true"></span><span id="detailStatus"></span></p>
+              <p class="detail-change" id="detailChange"></p>
+              <p class="detail-note" id="detailNote"></p>
             </div>
-            <p class="meta-label" id="timelineSub">HK time</p>
-          </div>
-          <div id="timelineSlots" class="timeline-slots"></div>
-        </div>
 
-        <div class="week">
-          <div class="timeline-heading">
-            <div>
-              <p class="eyebrow">Week overview</p>
-              <h3>Mon → Sun</h3>
-            </div>
-            <p class="meta-label">This week’s classes</p>
+            <section class="schedule" aria-labelledby="scheduleHeading">
+              <div class="schedule-heading">
+                <h3 id="scheduleHeading">Room schedule</h3>
+                <time id="scheduleDate"></time>
+              </div>
+              <div class="week-days" id="weekDays" role="group" aria-label="This week’s schedule"></div>
+              <details class="earlier-classes" id="earlierClasses" hidden>
+                <summary id="earlierSummary"></summary>
+                <ul class="schedule-list" id="earlierSlots"></ul>
+              </details>
+              <ul class="schedule-list" id="timelineSlots"></ul>
+              <p class="schedule-empty" id="scheduleEmpty" hidden>No classes scheduled on this day.</p>
+            </section>
           </div>
-          <div id="weekGrid" class="week-grid"></div>
-        </div>
+        </section>
+      </aside>
+    </div>
+    <dialog class="detail-dialog" id="detailDialog" aria-labelledby="detailRoomName"></dialog>
+
+    <footer class="site-footer">
+      <div>
+        <p>Availability based on the HKUST class schedule.</p>
+        <p class="status-note" id="statusNote" role="status">Loading schedule…</p>
       </div>
-    </section>
+      <a class="download-link" href="data/schedule.json" download>Download course data <span aria-hidden="true">↓</span></a>
+    </footer>
   </main>
 
-  <footer class="site-footer">
-    <p>Based on the HKUST class schedule. <a href="data/schedule.json" download>Download course data (JSON)</a></p>
-  </footer>
+  <template id="roomRowTemplate">
+    <li>
+      <button class="room-row room-columns" type="button">
+        <span class="room-identity">
+          <strong class="room-name"></strong>
+          <span class="room-location"></span>
+        </span>
+        <span class="status-chip"><span class="status-dot" aria-hidden="true"></span><span class="room-status"></span></span>
+        <span class="room-change">
+          <strong class="change-time"></strong>
+          <span class="change-note"></span>
+        </span>
+        <span class="row-chevron" aria-hidden="true"></span>
+      </button>
+    </li>
+  </template>
 
-  <script src="assets/app.js?v=2" type="module"></script>
+  <template id="scheduleSlotTemplate">
+    <li class="schedule-slot">
+      <span class="slot-time"></span>
+      <div class="slot-content">
+        <p class="slot-heading"><strong class="slot-code"></strong><span class="slot-now" hidden>Now</span></p>
+        <p class="slot-name"></p>
+        <p class="slot-meta"></p>
+      </div>
+    </li>
+  </template>
+
+  <script src="assets/app.js?v=3" type="module"></script>
 </body>
 </html>

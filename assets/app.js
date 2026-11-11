@@ -1,13 +1,5 @@
 const dayOrder = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-const dayLabels = {
-  Mo: 'Monday',
-  Tu: 'Tuesday',
-  We: 'Wednesday',
-  Th: 'Thursday',
-  Fr: 'Friday',
-  Sa: 'Saturday',
-  Su: 'Sunday',
-};
+const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const hkDateTime = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Hong_Kong',
   year: 'numeric',
@@ -17,111 +9,163 @@ const hkDateTime = new Intl.DateTimeFormat('en-GB', {
   minute: '2-digit',
   hourCycle: 'h23',
 });
+const scheduleDate = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'UTC',
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+});
+const roomNames = new Intl.Collator('en', { numeric: true });
 const millisecondsPerDay = 86_400_000;
+const minutesPerDay = 24 * 60;
+const pageSize = 8;
 const unassignedVenue = /^(?:TBA|TBC|N\/A|[-—])$|\b(?:online|zoom)\b/i;
+const locationGroups = [
+  ['LSK Building', /\bLSK Bldg\b/i],
+  ['CYT Building', /\bCYT Bldg\b/i],
+  ['Teaching Hub', /\bTeaching Hub\b/i],
+  ['Shaw Auditorium', /\bShaw Auditorium\b/i],
+  ['Library', /\bLIB\b/i],
+  ['Academic Concourse', /\bAcad Concourse\b/i],
+  ['Millennity', /\bMillennity\b/i],
+  ['Lecture theaters', /^Lecture Theat(?:er|re)\b/i],
+  ['Lift access', /\bLift \d/i],
+];
 
+const ui = Object.fromEntries([
+  'termLabel', 'hkClock', 'refreshButton', 'statusNote', 'roomSearch', 'clearSearch',
+  'locationFilter', 'sortRooms', 'roomsHeading', 'listHeading', 'roomList', 'resultsEmpty',
+  'emptyTitle', 'resetFilters', 'resultsFooter', 'resultRange', 'previousPage', 'nextPage',
+  'desktopDetail', 'roomDetail', 'detailEmpty', 'detailContent', 'detailDialog', 'closeDetail',
+  'detailRoomName', 'detailLocation', 'detailAvailability', 'detailStatus', 'detailChange',
+  'detailNote', 'scheduleDate', 'weekDays', 'earlierClasses', 'earlierSummary', 'earlierSlots',
+  'timelineSlots', 'scheduleEmpty', 'roomRowTemplate', 'scheduleSlotTemplate',
+].map((id) => [id, document.getElementById(id)]));
+
+const availabilityButtons = [...document.querySelectorAll('[data-availability]')];
+const compactLayout = window.matchMedia('(max-width: 900px)');
 const state = {
   rooms: null,
   hkNow: getHKNow(),
+  query: '',
+  availability: 'all',
+  page: 0,
   selectedRoomId: null,
   selectedDay: null,
-  timelineMode: 'today',
-  searchQuery: '',
 };
 
-const ui = {
-  usingList: document.getElementById('usingList'),
-  emptyList: document.getElementById('emptyList'),
-  usingCount: document.getElementById('usingCount'),
-  emptyCount: document.getElementById('emptyCount'),
-  termLabel: document.getElementById('termLabel'),
-  hkClock: document.getElementById('hkClock'),
-  statusNote: document.getElementById('statusNote'),
-  detailEmpty: document.getElementById('detailEmptyState'),
-  detailContent: document.getElementById('detailContent'),
-  detailRoomName: document.getElementById('detailRoomName'),
-  detailStatusPill: document.getElementById('detailStatusPill'),
-  detailStatusLabel: document.getElementById('detailStatusLabel'),
-  detailSubtext: document.getElementById('detailSubtext'),
-  detailNextChange: document.getElementById('detailNextChange'),
-  detailUpcoming: document.getElementById('detailUpcoming'),
-  detailSlotCount: document.getElementById('detailSlotCount'),
-  timelineTitle: document.getElementById('timelineTitle'),
-  timelineSub: document.getElementById('timelineSub'),
-  timelineSlots: document.getElementById('timelineSlots'),
-  weekGrid: document.getElementById('weekGrid'),
-  daySelect: document.getElementById('daySelect'),
-  searchInput: document.getElementById('roomSearch'),
-  refreshButton: document.getElementById('refreshButton'),
-  timelineMode: document.getElementById('timelineMode'),
-};
+const dayButtons = dayOrder.map((day, index) => {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'day-button';
+  const label = document.createElement('span');
+  label.textContent = dayLabels[index];
+  const date = document.createElement('strong');
+  button.append(label, date);
+  button.addEventListener('click', () => {
+    state.selectedDay = day === state.hkNow.dayCode ? null : day;
+    renderRoomDetail(selectedRoom());
+  });
+  return { day, button, date };
+});
 
 function init() {
-  state.selectedDay = state.hkNow.dayCode;
-  populateDaySelect();
-  bindEvents();
-  showLoading();
+  ui.weekDays.append(...dayButtons.map(({ button }) => button));
+  ui.roomSearch.addEventListener('input', updateSearch);
+  ui.clearSearch.addEventListener('click', () => {
+    ui.roomSearch.value = '';
+    updateSearch();
+    ui.roomSearch.focus();
+  });
+  ui.locationFilter.addEventListener('change', resetPage);
+  ui.sortRooms.addEventListener('change', resetPage);
+  for (const button of availabilityButtons) {
+    button.addEventListener('click', () => {
+      state.availability = button.dataset.availability;
+      resetPage();
+    });
+  }
+  ui.resetFilters.addEventListener('click', () => {
+    ui.roomSearch.value = '';
+    ui.locationFilter.value = '';
+    state.availability = 'all';
+    updateSearch();
+    ui.roomSearch.focus();
+  });
+  ui.previousPage.addEventListener('click', () => changePage(-1));
+  ui.nextPage.addEventListener('click', () => changePage(1));
+  ui.refreshButton.addEventListener('click', () => refreshData(true));
+  ui.closeDetail.addEventListener('click', () => ui.detailDialog.close());
+  ui.detailDialog.addEventListener('close', restoreInlineDetail);
+  compactLayout.addEventListener('change', () => {
+    if (!compactLayout.matches && ui.detailDialog.open) ui.detailDialog.close();
+    renderResults();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) updateClock();
+  });
+
+  updateClock();
+  setInterval(updateClock, 30_000);
   refreshData();
-  startClockLoop();
 }
 
-function bindEvents() {
-  ui.searchInput.addEventListener('input', (event) => {
-    state.searchQuery = event.target.value.trim().toLowerCase();
-    renderStatusBoard();
-  });
+function updateSearch() {
+  state.query = searchKey(ui.roomSearch.value);
+  ui.clearSearch.hidden = !ui.roomSearch.value;
+  resetPage();
+}
 
-  ui.daySelect.addEventListener('change', (event) => {
-    state.selectedDay = event.target.value;
-    if (state.selectedRoomId) {
-      renderRoomDetail(getRoomById(state.selectedRoomId));
-    }
-  });
+function resetPage() {
+  state.page = 0;
+  renderResults(true);
+}
 
-  ui.timelineMode.addEventListener('change', (event) => {
-    state.timelineMode = event.target.value;
-    if (state.selectedRoomId) {
-      renderRoomDetail(getRoomById(state.selectedRoomId));
-    }
-  });
+function changePage(offset) {
+  state.page += offset;
+  renderResults(true);
+  if (ui.roomsHeading.getBoundingClientRect().top < 0) {
+    ui.roomsHeading.scrollIntoView({ block: 'start' });
+  }
+}
 
-  ui.refreshButton.addEventListener('click', () => {
-    ui.statusNote.textContent = 'Refreshing…';
-    refreshData(true);
-  });
+function updateClock() {
+  state.hkNow = getHKNow();
+  const { dayCode, weekDates, clock } = state.hkNow;
+  ui.hkClock.textContent = clock;
+  ui.hkClock.dateTime = `${weekDates[dayCode]}T${clock}:00+08:00`;
+  renderResults();
 }
 
 async function refreshData(force = false) {
   ui.refreshButton.disabled = true;
+  ui.refreshButton.setAttribute('aria-busy', 'true');
+  ui.statusNote.textContent = 'Loading schedule…';
+  if (!state.rooms) ui.emptyTitle.textContent = 'Loading rooms…';
   try {
     const url = force ? `data/schedule.json?ts=${Date.now()}` : 'data/schedule.json';
     const response = await fetch(url, { cache: 'no-cache' });
-    if (!response.ok) {
-      throw new Error(`Failed to load schedule (${response.status})`);
-    }
+    if (!response.ok) throw new Error(`Failed to load schedule (${response.status})`);
     const payload = await response.json();
-    const rooms = Array.isArray(payload.courses) ? buildRoomIndex(payload.courses) : payload.rooms;
-    state.rooms = normalizeRooms(rooms);
+    const roomsMap = Array.isArray(payload.courses) ? buildRoomIndex(payload.courses) : payload.rooms;
+    if (!roomsMap || typeof roomsMap !== 'object' || Array.isArray(roomsMap)) {
+      throw new Error('Unrecognized schedule format');
+    }
+    state.rooms = normalizeRooms(roomsMap);
     const semester = payload.semester_name || `Term ${payload.semester}`;
     ui.termLabel.textContent = `HKUST · ${semester}`;
     const date = payload.scraped_at?.slice(0, 10);
-    ui.statusNote.textContent = `${state.rooms.length} rooms${date ? ` · Updated ${date}` : ''}`;
-    renderStatusBoard();
-    setInitialRoomSelection();
+    ui.statusNote.textContent = date ? `Updated ${date}` : 'Schedule loaded';
+    populateLocations();
+    renderResults(true);
   } catch (error) {
     console.error(error);
-    ui.statusNote.textContent = 'Could not load the course schedule.';
-    if (!state.rooms) {
-      ui.usingList.innerHTML = '<p class="empty-message">Schedule unavailable.</p>';
-    }
+    ui.statusNote.textContent = 'Could not refresh the schedule.';
+    if (!state.rooms) ui.emptyTitle.textContent = 'Could not load rooms. Try refreshing.';
   } finally {
     ui.refreshButton.disabled = false;
+    ui.refreshButton.removeAttribute('aria-busy');
   }
-}
-
-function showLoading() {
-  ui.usingList.innerHTML = '<p class="empty-message">Loading rooms…</p>';
-  ui.emptyList.innerHTML = '';
 }
 
 function buildRoomIndex(courses) {
@@ -152,360 +196,291 @@ function buildRoomIndex(courses) {
 }
 
 function normalizeRooms(roomsMap) {
-  return Object.entries(roomsMap)
-    .map(([name, sections]) => ({
-      id: name,
-      name,
-      slug: name.toLowerCase(),
-      sections: sections.map((section) => {
-        const startMinutes = parseTimeToMinutes(section.start_time);
-        const endMinutes = parseTimeToMinutes(section.end_time);
-        return {
-          ...section,
-          startMinutes,
-          endMinutes,
-          durationMinutes: endMinutes - startMinutes,
-        };
-      }),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return Object.entries(roomsMap).map(([venue, sections]) => {
+    const capacity = venue.match(/\s+\((\d+)\)$/);
+    const [name, ...parts] = venue.replace(/\s+\(\d+\)$/, '').split(/,\s*/);
+    const location = parts.join(', ');
+    const group = locationGroups.find(([, pattern]) => pattern.test(venue))?.[0] || 'Other rooms';
+    const description = [location, capacity ? `${capacity[1]} seats` : ''].filter(Boolean).join(' · ');
+    const liftLabel = /^Lift ([\d, –-]+)$/i.exec(location)?.[1];
+    const liftRanges = liftLabel ? liftLabel.split(',').map((part) => {
+      const [first, last = first] = part.split(/[-–]/).map(Number);
+      return [first, last];
+    }) : [];
+    const roomNumber = name.replace(/^Rm /i, '');
+    const aliases = [name, roomNumber, name.replace(/^Lecture Theat(?:er|re) /i, 'LT ')].map(searchKey);
+    const searchTerms = new Set([
+      ...aliases,
+      ...[venue, `${name} ${group}`, `${group} ${name}`, `${location.split(/[\s,]/)[0]} ${roomNumber}`].map(searchKey),
+    ]);
+    const scheduled = sections.map((section) => {
+      searchTerms.add(searchKey(section.course_code || ''));
+      searchTerms.add(searchKey(section.course_name || ''));
+      return {
+        ...section,
+        startMinutes: parseTimeToMinutes(section.start_time),
+        endMinutes: parseTimeToMinutes(section.end_time),
+      };
+    }).sort((a, b) => a.startMinutes - b.startMinutes);
+    return { id: venue, name, description, group, liftRanges, aliases, searchTerms: [...searchTerms], sections: scheduled };
+  });
 }
 
-function renderStatusBoard() {
-  if (!state.rooms) {
-    return;
+function searchKey(value) {
+  return value.normalize('NFKC').toLowerCase().replace(/\broom(?=\s|\d|$)/g, 'rm').replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+function populateLocations() {
+  const current = ui.locationFilter.value;
+  const groups = [...new Set(state.rooms.map((room) => room.group))].sort(roomNames.compare);
+  ui.locationFilter.replaceChildren(
+    new Option('All locations', ''),
+    ...groups.map((group) => new Option(group, group)),
+  );
+  ui.locationFilter.value = groups.includes(current) ? current : '';
+}
+
+function renderResults(chooseVisibleRoom = false) {
+  if (!state.rooms) return;
+
+  const location = ui.locationFilter.value;
+  const lift = /^lift\s*(\d+)$/i.exec(ui.roomSearch.value.normalize('NFKC').trim());
+  const liftNumber = lift ? Number(lift[1]) : null;
+  const matches = state.rooms
+    .filter((room) => !location || room.group === location)
+    .filter((room) => roomMatchesSearch(room, liftNumber))
+    .map((room) => ({
+      room,
+      exactRoom: room.aliases.includes(state.query),
+      snapshot: buildRoomSnapshot(room, state.hkNow),
+    }));
+  const free = matches.filter(({ snapshot }) => !snapshot.isBusy);
+  const busy = matches.filter(({ snapshot }) => snapshot.isBusy);
+  const byStatus = { all: matches, free, busy };
+  for (const button of availabilityButtons) {
+    const filter = button.dataset.availability;
+    button.setAttribute('aria-pressed', String(state.availability === filter));
+    button.querySelector('.filter-count').textContent = byStatus[filter].length;
   }
 
-  const filtered = state.rooms.filter((room) => roomMatchesQuery(room, state.searchQuery));
-  const { busy, free } = splitRoomsByStatus(filtered, state.hkNow);
-
-  ui.usingCount.textContent = busy.length;
-  ui.emptyCount.textContent = free.length;
-
-  ui.usingList.innerHTML = busy.length ? '' : '<p class="empty-message">No rooms match right now.</p>';
-  ui.emptyList.innerHTML = free.length ? '' : '<p class="empty-message">No rooms match right now.</p>';
-
-  busy.forEach(({ room, snapshot }) => ui.usingList.appendChild(buildRoomCard(room, snapshot)));
-  free.forEach(({ room, snapshot }) => ui.emptyList.appendChild(buildRoomCard(room, snapshot)));
-
-  highlightSelectedCard();
-}
-
-function splitRoomsByStatus(rooms, now) {
-  const busy = [];
-  const free = [];
-
-  rooms.forEach((room) => {
-    const snapshot = buildRoomSnapshot(room, now);
-    if (snapshot.isBusy) {
-      busy.push({ room, snapshot });
-    } else {
-      free.push({ room, snapshot });
+  const results = byStatus[state.availability];
+  results.sort((a, b) => {
+    if (ui.sortRooms.value === 'availability') {
+      const relevance = Number(b.exactRoom) - Number(a.exactRoom);
+      const availability = relevance || compareAvailability(a.snapshot, b.snapshot);
+      if (availability) return availability;
     }
+    return roomNames.compare(a.room.id, b.room.id);
   });
+  const pages = Math.max(1, Math.ceil(results.length / pageSize));
+  state.page = Math.max(0, Math.min(state.page, pages - 1));
+  const start = state.page * pageSize;
+  const visible = results.slice(start, start + pageSize);
 
-  const byNextChange = (a, b) => (a.snapshot.nextChangeMinutes ?? Infinity) - (b.snapshot.nextChangeMinutes ?? Infinity);
+  if (!state.selectedRoomId || (chooseVisibleRoom && !visible.some(({ room }) => room.id === state.selectedRoomId))) {
+    state.selectedRoomId = visible[0]?.room.id ?? null;
+  }
+  const focusedRoomId = document.activeElement?.closest('.room-row')?.dataset.room;
+  ui.roomList.replaceChildren(...visible.map(buildRoomRow));
+  if (focusedRoomId) findRoomButton(focusedRoomId)?.focus({ preventScroll: true });
 
-  busy.sort(byNextChange);
-  free.sort(byNextChange);
-
-  return { busy, free };
+  ui.listHeading.hidden = !results.length;
+  ui.resultsFooter.hidden = !results.length;
+  ui.resultsEmpty.hidden = Boolean(results.length);
+  if (results.length) {
+    const first = start + 1;
+    const last = start + visible.length;
+    const range = first === last ? first : `${first}–${last}`;
+    ui.resultRange.textContent = `${range} of ${results.length} ${results.length === 1 ? 'room' : 'rooms'}`;
+    ui.previousPage.disabled = state.page === 0;
+    ui.nextPage.disabled = state.page >= pages - 1;
+  } else {
+    ui.emptyTitle.textContent = state.rooms.length ? 'No rooms match these filters.' : 'No rooms in the current schedule.';
+    ui.resetFilters.hidden = !state.rooms.length;
+  }
+  renderRoomDetail(selectedRoom());
 }
 
-function buildRoomCard(room, snapshot) {
-  const card = document.createElement('button');
-  card.type = 'button';
-  card.className = 'room-card';
-  card.dataset.room = room.id;
-
-  const nameEl = document.createElement('div');
-  nameEl.className = 'room-name';
-  nameEl.textContent = room.name;
-
-  const statusEl = document.createElement('div');
-  statusEl.className = 'room-status';
-  statusEl.textContent = snapshot.statusLabel;
-
-  const nextEl = document.createElement('div');
-  nextEl.className = 'room-next';
-  nextEl.textContent = snapshot.nextLine;
-
-  card.appendChild(nameEl);
-  card.appendChild(statusEl);
-  card.appendChild(nextEl);
-
-  card.addEventListener('click', () => {
-    state.selectedRoomId = room.id;
-    renderRoomDetail(room);
-    highlightSelectedCard();
-  });
-  return card;
+function roomMatchesSearch(room, lift) {
+  if (lift !== null) return room.liftRanges.some(([first, last]) => first <= lift && lift <= last);
+  return !state.query || room.searchTerms.some((term) => term.includes(state.query));
 }
 
-function highlightSelectedCard() {
-  const cards = document.querySelectorAll('.room-card');
-  cards.forEach((node) => {
-    if (node.dataset.room === state.selectedRoomId) {
-      node.classList.add('selected');
-    } else {
-      node.classList.remove('selected');
-    }
-  });
+function compareAvailability(a, b) {
+  if (a.isBusy !== b.isBusy) return a.isBusy ? 1 : -1;
+  if (a.isBusy) return a.changeMinutes - b.changeMinutes;
+  return (b.changeMinutes ?? minutesPerDay) - (a.changeMinutes ?? minutesPerDay);
+}
+
+function buildRoomRow({ room, snapshot }) {
+  const row = ui.roomRowTemplate.content.firstElementChild.cloneNode(true);
+  const button = row.firstElementChild;
+  const status = describeAvailability(snapshot, state.hkNow);
+  button.dataset.room = room.id;
+  button.setAttribute('aria-controls', compactLayout.matches ? 'detailDialog' : 'roomDetail');
+  if (compactLayout.matches) button.setAttribute('aria-haspopup', 'dialog');
+  button.setAttribute('aria-current', String(room.id === state.selectedRoomId));
+  row.querySelector('.room-name').textContent = room.name;
+  row.querySelector('.room-location').textContent = room.description;
+  row.querySelector('.status-chip').classList.add(status.kind);
+  row.querySelector('.room-status').textContent = status.label;
+  row.querySelector('.change-time').textContent = status.change;
+  row.querySelector('.change-note').textContent = status.note;
+  button.addEventListener('click', () => selectRoom(room));
+  return row;
+}
+
+function selectedRoom() {
+  return state.rooms?.find((room) => room.id === state.selectedRoomId);
+}
+
+function findRoomButton(roomId) {
+  return [...ui.roomList.querySelectorAll('.room-row')].find((button) => button.dataset.room === roomId);
+}
+
+function selectRoom(room) {
+  state.selectedRoomId = room.id;
+  for (const button of ui.roomList.querySelectorAll('.room-row')) {
+    button.setAttribute('aria-current', String(button.dataset.room === room.id));
+  }
+  renderRoomDetail(room);
+  if (compactLayout.matches) {
+    ui.detailDialog.append(ui.roomDetail);
+    ui.detailDialog.showModal();
+  }
+}
+
+function restoreInlineDetail() {
+  if (ui.detailDialog.open) return;
+  ui.desktopDetail.append(ui.roomDetail);
+  if (compactLayout.matches) {
+    (findRoomButton(state.selectedRoomId) || ui.roomSearch).focus({ preventScroll: true });
+  }
 }
 
 function buildRoomSnapshot(room, now) {
-  const todaySections = getSectionsForDay(room.sections, now.dayCode, now);
-  const current = todaySections.find((section) => isSectionActive(section, now.minutes));
-  const next = todaySections.find((section) => section.startMinutes >= now.minutes && section !== current);
-
-  let statusLabel = 'Free all day';
-  let nextLine = 'No more classes today';
-  let nextChangeMinutes = null;
-
-  if (current) {
-    statusLabel = `Busy until ${current.end_time}`;
-    nextLine = `${current.course_code} · ${current.start_time} – ${current.end_time}`;
-    nextChangeMinutes = current.endMinutes;
-  } else if (next) {
-    statusLabel = `Free until ${next.start_time}`;
-    nextLine = `${next.start_time} · ${next.course_code}`;
-    nextChangeMinutes = next.startMinutes;
+  const sections = getSectionsForDay(room.sections, now.dayCode, now);
+  const current = sections.find((section) => isSectionActive(section, now.minutes));
+  if (!current) {
+    const next = sections.find((section) => section.startMinutes > now.minutes);
+    return { isBusy: false, next, changeMinutes: next?.startMinutes };
   }
 
-  return {
-    isBusy: Boolean(current),
-    statusLabel,
-    nextLine,
-    nextChangeMinutes,
-    todaySections,
-    current,
-    next,
-  };
+  // Overlapping and back-to-back classes keep the room occupied as one block.
+  let changeMinutes = current.endMinutes;
+  for (const section of sections) {
+    if (section.startMinutes > changeMinutes) break;
+    changeMinutes = Math.max(changeMinutes, section.endMinutes);
+  }
+  return { isBusy: true, current, changeMinutes };
+}
+
+function describeAvailability(snapshot, now) {
+  if (snapshot.isBusy) {
+    return {
+      kind: 'busy',
+      label: 'In use',
+      change: `Free at ${formatTime(snapshot.changeMinutes)}`,
+      note: `${snapshot.current.course_code} now`,
+      detail: `${snapshot.current.course_code} in progress`,
+    };
+  }
+  if (snapshot.next) {
+    return {
+      kind: 'free',
+      label: 'Available',
+      change: `Free until ${snapshot.next.start_time}`,
+      note: `${formatDuration(snapshot.changeMinutes - now.minutes)} left`,
+      detail: `Next class · ${snapshot.next.course_code}`,
+    };
+  }
+  return { kind: 'free', label: 'Available', change: 'Rest of today', note: '', detail: '' };
 }
 
 function renderRoomDetail(room) {
-  if (!room) {
-    ui.detailContent.classList.add('hidden');
-    ui.detailEmpty.classList.remove('hidden');
-    return;
-  }
+  ui.detailEmpty.hidden = Boolean(room);
+  ui.detailContent.hidden = !room;
+  if (!room) return;
 
-  const snapshot = buildRoomSnapshot(room, state.hkNow);
-  const isBusy = snapshot.isBusy;
-
+  const now = state.hkNow;
+  const status = describeAvailability(buildRoomSnapshot(room, now), now);
   ui.detailRoomName.textContent = room.name;
-  ui.detailStatusPill.textContent = isBusy ? 'In use' : 'Empty now';
-  ui.detailStatusPill.classList.toggle('busy', isBusy);
-  ui.detailStatusPill.classList.toggle('free', !isBusy);
-  ui.detailStatusLabel.textContent = isBusy ? `Occupied until ${snapshot.current?.end_time}` : 'Available to occupy';
-  ui.detailSubtext.textContent = snapshot.nextLine;
-  ui.detailNextChange.textContent = isBusy
-    ? `Vacant at ${snapshot.current?.end_time}`
-    : snapshot.next
-      ? `Next class kicks off at ${snapshot.next.start_time}`
-      : 'Free for the rest of the day';
-  ui.detailUpcoming.textContent = snapshot.next
-    ? `${snapshot.next.course_code} · ${snapshot.next.start_time} – ${snapshot.next.end_time}`
-    : snapshot.current
-      ? `${snapshot.current.course_code} happening now`
-      : 'No remaining bookings today';
+  ui.detailLocation.textContent = room.description;
+  ui.detailAvailability.classList.toggle('busy', status.kind === 'busy');
+  ui.detailAvailability.classList.toggle('free', status.kind === 'free');
+  ui.detailStatus.textContent = `${status.label} now`;
+  ui.detailChange.textContent = status.change;
+  ui.detailNote.textContent = status.detail;
 
-  const timelineDay = state.timelineMode === 'today' ? state.hkNow.dayCode : state.selectedDay;
-  const timelineTitleLabel = state.timelineMode === 'today' ? `Today · ${dayLabels[state.hkNow.dayCode]}` : `${dayLabels[timelineDay]} timeline`;
-  ui.timelineTitle.textContent = timelineTitleLabel;
-  ui.timelineSub.textContent = state.timelineMode === 'today'
-    ? `Live HK time ${state.hkNow.clock}`
-    : `${state.hkNow.weekDates[timelineDay]} · HK time`;
-
-  renderTimeline(room, timelineDay);
-  renderWeekGrid(room);
-
-  const slotsToday = getSectionsForDay(room.sections, timelineDay).length;
-  ui.detailSlotCount.textContent = `${slotsToday} slot${slotsToday === 1 ? '' : 's'}`;
-
-  ui.detailEmpty.classList.add('hidden');
-  ui.detailContent.classList.remove('hidden');
-}
-
-function renderTimeline(room, dayCode) {
-  const entries = getSectionsForDay(room.sections, dayCode);
-  ui.timelineSlots.innerHTML = '';
-
-  if (!entries.length) {
-    ui.timelineSlots.innerHTML = '<p class="timeline-empty">Room stays free this day.</p>';
-    return;
+  const selectedDay = state.selectedDay ?? now.dayCode;
+  const today = selectedDay === now.dayCode;
+  const date = now.weekDates[selectedDay];
+  const formatted = formatDate(date);
+  ui.scheduleDate.textContent = today ? `Today · ${formatted}` : formatted;
+  ui.scheduleDate.dateTime = date;
+  for (const entry of dayButtons) {
+    const day = now.weekDates[entry.day];
+    entry.date.textContent = Number(day.slice(-2));
+    const label = formatDate(day);
+    entry.button.setAttribute('aria-label', entry.day === now.dayCode ? `Today, ${label}` : label);
+    entry.button.setAttribute('aria-pressed', String(entry.day === selectedDay));
   }
 
-  const showLiveProgress = state.timelineMode === 'today' && dayCode === state.hkNow.dayCode;
-
-  entries.forEach((section) => {
-    const slot = document.createElement('div');
-    slot.className = 'timeline-slot';
-    const isActive = dayCode === state.hkNow.dayCode && isSectionActive(section, state.hkNow.minutes);
-    if (isActive) {
-      slot.classList.add('active');
-    }
-
-    const widthPercent = showLiveProgress
-      ? getSectionProgressPercent(section, state.hkNow.minutes)
-      : ((section.endMinutes - section.startMinutes) / (24 * 60)) * 100;
-
-    const header = document.createElement('div');
-    header.className = 'slot-header';
-    const time = document.createElement('span');
-    time.textContent = `${section.start_time} – ${section.end_time}`;
-    const instructor = document.createElement('span');
-    instructor.textContent = section.instructor || '';
-    header.appendChild(time);
-    header.appendChild(instructor);
-
-    const course = document.createElement('p');
-    course.className = 'slot-course';
-    course.textContent = `${section.course_code} · ${section.course_name}`;
-
-    const seat = document.createElement('p');
-    seat.className = 'room-status';
-    seat.textContent = formatSeatLine(section);
-
-    const bar = document.createElement('div');
-    bar.className = 'slot-bar';
-    const fill = document.createElement('span');
-    fill.style.setProperty('--fill', `${widthPercent.toFixed(2)}%`);
-    bar.appendChild(fill);
-
-    slot.appendChild(header);
-    slot.appendChild(course);
-    slot.appendChild(seat);
-    slot.appendChild(bar);
-
-    ui.timelineSlots.appendChild(slot);
-  });
+  const sections = getSectionsForDay(room.sections, selectedDay, now);
+  const earlier = today ? sections.filter((section) => section.endMinutes <= now.minutes) : [];
+  const upcoming = today ? sections.filter((section) => section.endMinutes > now.minutes) : sections;
+  ui.earlierClasses.hidden = !earlier.length;
+  ui.earlierSummary.textContent = `${earlier.length} earlier ${earlier.length === 1 ? 'class' : 'classes'}`;
+  ui.earlierSlots.replaceChildren(...earlier.map((section) => buildScheduleSlot(section, false)));
+  ui.timelineSlots.replaceChildren(...upcoming.map((section) => (
+    buildScheduleSlot(section, today && isSectionActive(section, now.minutes))
+  )));
+  ui.scheduleEmpty.hidden = Boolean(sections.length);
 }
 
-function getSectionProgressPercent(section, minutesNow) {
-  if (!Number.isFinite(section.durationMinutes) || section.durationMinutes <= 0) {
-    return minutesNow >= section.endMinutes ? 100 : 0;
-  }
-  if (minutesNow <= section.startMinutes) {
-    return 0;
-  }
-  if (minutesNow >= section.endMinutes) {
-    return 100;
-  }
-  const elapsed = minutesNow - section.startMinutes;
-  const percent = (elapsed / section.durationMinutes) * 100;
-  return Math.min(Math.max(percent, 0), 100);
+function buildScheduleSlot(section, active) {
+  const slot = ui.scheduleSlotTemplate.content.firstElementChild.cloneNode(true);
+  slot.classList.toggle('is-current', active);
+  slot.querySelector('.slot-time').textContent = `${section.start_time}–${section.end_time}`;
+  slot.querySelector('.slot-code').textContent = section.course_code;
+  slot.querySelector('.slot-now').hidden = !active;
+  slot.querySelector('.slot-name').textContent = section.course_name;
+  const sectionLabel = section.section ? `Section ${section.section}` : '';
+  slot.querySelector('.slot-meta').textContent = [sectionLabel, section.instructor].filter(Boolean).join(' · ');
+  return slot;
 }
 
-function renderWeekGrid(room) {
-  ui.weekGrid.innerHTML = '';
-  dayOrder.forEach((code) => {
-    const dayLabel = dayLabels[code];
-    const slotWrap = document.createElement('div');
-    slotWrap.className = 'week-slots';
-    const daySections = getSectionsForDay(room.sections, code);
-
-    if (!daySections.length) {
-      const chip = document.createElement('span');
-      chip.className = 'week-chip';
-      chip.textContent = 'Free';
-      slotWrap.appendChild(chip);
-    } else {
-      daySections.forEach((section) => {
-        const chip = document.createElement('span');
-        chip.className = 'week-chip busy';
-        chip.textContent = `${section.start_time} · ${section.course_code}`;
-        slotWrap.appendChild(chip);
-      });
-    }
-
-    const dayName = document.createElement('div');
-    dayName.className = 'week-day';
-    dayName.textContent = dayLabel;
-
-    ui.weekGrid.appendChild(dayName);
-    ui.weekGrid.appendChild(slotWrap);
-  });
-}
-
-function populateDaySelect() {
-  dayOrder.forEach((code) => {
-    const option = document.createElement('option');
-    option.value = code;
-    option.textContent = dayLabels[code];
-    if (code === state.selectedDay) {
-      option.selected = true;
-    }
-    ui.daySelect.appendChild(option);
-  });
-}
-
-function startClockLoop() {
-  const tick = () => {
-    state.hkNow = getHKNow();
-    ui.hkClock.textContent = state.hkNow.clock;
-    renderStatusBoard();
-    if (state.selectedRoomId) {
-      renderRoomDetail(getRoomById(state.selectedRoomId));
-    }
-  };
-
-  tick();
-  setInterval(tick, 60_000);
-}
-
-function getRoomById(id) {
-  return state.rooms.find((room) => room.id === id);
-}
-
-function setInitialRoomSelection() {
-  const room = getRoomById(state.selectedRoomId) || state.rooms[0];
-  state.selectedRoomId = room?.id ?? null;
-  renderRoomDetail(room);
-  highlightSelectedCard();
-}
-
-function roomMatchesQuery(room, query) {
-  if (!query) {
-    return true;
-  }
-  const lower = query.toLowerCase();
-  if (room.slug.includes(lower)) {
-    return true;
-  }
-  return room.sections.some((section) =>
-    (section.course_code || '').toLowerCase().includes(lower) || (section.course_name || '').toLowerCase().includes(lower)
-  );
-}
-
-function getSectionsForDay(sections, dayCode, now = state.hkNow) {
+function getSectionsForDay(sections, dayCode, now) {
   const date = now.weekDates[dayCode];
-  return sections
-    .filter((section) =>
-      section.days.includes(dayCode) &&
-      (!section.start_date || section.start_date <= date) &&
-      (!section.end_date || date <= section.end_date)
-    )
-    .sort((a, b) => a.startMinutes - b.startMinutes);
+  return sections.filter((section) =>
+    section.days.includes(dayCode) &&
+    (!section.start_date || section.start_date <= date) &&
+    (!section.end_date || date <= section.end_date)
+  );
 }
 
 function isSectionActive(section, minutesNow) {
   return minutesNow >= section.startMinutes && minutesNow < section.endMinutes;
 }
 
-function formatSeatLine(section) {
-  if (section.section) {
-    return `Section ${section.section}`;
-  }
-  if (section.course_code) {
-    return `Section info · ${section.course_code}`;
-  }
-  return 'Section info unavailable';
+function parseTimeToMinutes(value) {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
 }
 
-function parseTimeToMinutes(timeStr) {
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  return hours * 60 + minutes;
+function formatTime(value) {
+  const hours = Math.floor(value / 60);
+  return `${String(hours).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+}
+
+function formatDuration(value) {
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  return [hours ? `${hours} h` : '', minutes ? `${minutes} min` : ''].filter(Boolean).join(' ');
+}
+
+function formatDate(date) {
+  return scheduleDate.format(new Date(`${date}T00:00:00Z`));
 }
 
 function getHKNow(now = new Date()) {
