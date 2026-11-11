@@ -8,10 +8,20 @@ const dayLabels = {
   Sa: 'Saturday',
   Su: 'Sunday',
 };
-const weekdayFromIndex = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const hkDateTime = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Hong_Kong',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+const millisecondsPerDay = 86_400_000;
+const unassignedVenue = /^(?:TBA|TBC|N\/A|[-—])$|\b(?:online|zoom)\b/i;
 
 const state = {
-  rooms: [],
+  rooms: null,
   hkNow: getHKNow(),
   selectedRoomId: null,
   selectedDay: null,
@@ -24,6 +34,7 @@ const ui = {
   emptyList: document.getElementById('emptyList'),
   usingCount: document.getElementById('usingCount'),
   emptyCount: document.getElementById('emptyCount'),
+  termLabel: document.getElementById('termLabel'),
   hkClock: document.getElementById('hkClock'),
   statusNote: document.getElementById('statusNote'),
   detailEmpty: document.getElementById('detailEmptyState'),
@@ -81,28 +92,63 @@ function bindEvents() {
 }
 
 async function refreshData(force = false) {
+  ui.refreshButton.disabled = true;
   try {
     const url = force ? `data/schedule.json?ts=${Date.now()}` : 'data/schedule.json';
-    const response = await fetch(url);
+    const response = await fetch(url, { cache: 'no-cache' });
     if (!response.ok) {
       throw new Error(`Failed to load schedule (${response.status})`);
     }
     const payload = await response.json();
-    state.rooms = normalizeRooms(payload.rooms);
-    ui.statusNote.textContent = `Loaded ${state.rooms.length} rooms`;
+    const rooms = Array.isArray(payload.courses) ? buildRoomIndex(payload.courses) : payload.rooms;
+    state.rooms = normalizeRooms(rooms);
+    const semester = payload.semester_name || `Term ${payload.semester}`;
+    ui.termLabel.textContent = `HKUST · ${semester}`;
+    const date = payload.scraped_at?.slice(0, 10);
+    ui.statusNote.textContent = `${state.rooms.length} rooms${date ? ` · Updated ${date}` : ''}`;
     renderStatusBoard();
     setInitialRoomSelection();
   } catch (error) {
     console.error(error);
-    ui.statusNote.textContent = error.message;
-    ui.usingList.innerHTML = `<p class="empty-message">${error.message}</p>`;
-    ui.emptyList.innerHTML = '';
+    ui.statusNote.textContent = 'Could not load the course schedule.';
+    if (!state.rooms) {
+      ui.usingList.innerHTML = '<p class="empty-message">Schedule unavailable.</p>';
+    }
+  } finally {
+    ui.refreshButton.disabled = false;
   }
 }
 
 function showLoading() {
   ui.usingList.innerHTML = '<p class="empty-message">Loading rooms…</p>';
   ui.emptyList.innerHTML = '';
+}
+
+function buildRoomIndex(courses) {
+  const rooms = Object.create(null);
+  for (const course of courses) {
+    const units = course.units == null ? '' : ` (${course.units} ${course.units === 1 ? 'unit' : 'units'})`;
+    for (const section of course.sections) {
+      for (const meeting of section.meetings) {
+        const { room, days, start_time, end_time, start_date, end_date, instructors } = meeting;
+        if (!room || unassignedVenue.test(room) || !days.length || !start_time || !end_time) {
+          continue;
+        }
+        (rooms[room] ??= []).push({
+          course_code: course.code,
+          course_name: course.name + units,
+          section: `${section.section} (${section.class_number})`,
+          days,
+          start_time,
+          end_time,
+          start_date,
+          end_date,
+          instructor: instructors.join(' · '),
+        });
+      }
+    }
+  }
+  return rooms;
 }
 
 function normalizeRooms(roomsMap) {
@@ -126,7 +172,7 @@ function normalizeRooms(roomsMap) {
 }
 
 function renderStatusBoard() {
-  if (!state.rooms.length || !state.hkNow) {
+  if (!state.rooms) {
     return;
   }
 
@@ -208,7 +254,7 @@ function highlightSelectedCard() {
 }
 
 function buildRoomSnapshot(room, now) {
-  const todaySections = getSectionsForDay(room.sections, now.dayCode);
+  const todaySections = getSectionsForDay(room.sections, now.dayCode, now);
   const current = todaySections.find((section) => isSectionActive(section, now.minutes));
   const next = todaySections.find((section) => section.startMinutes >= now.minutes && section !== current);
 
@@ -268,8 +314,8 @@ function renderRoomDetail(room) {
   const timelineTitleLabel = state.timelineMode === 'today' ? `Today · ${dayLabels[state.hkNow.dayCode]}` : `${dayLabels[timelineDay]} timeline`;
   ui.timelineTitle.textContent = timelineTitleLabel;
   ui.timelineSub.textContent = state.timelineMode === 'today'
-    ? `Live HK time ${formatClock(state.hkNow.date)}`
-    : 'Based on selected focus day';
+    ? `Live HK time ${state.hkNow.clock}`
+    : `${state.hkNow.weekDates[timelineDay]} · HK time`;
 
   renderTimeline(room, timelineDay);
   renderWeekGrid(room);
@@ -397,7 +443,7 @@ function populateDaySelect() {
 function startClockLoop() {
   const tick = () => {
     state.hkNow = getHKNow();
-    ui.hkClock.textContent = formatClock(state.hkNow.date);
+    ui.hkClock.textContent = state.hkNow.clock;
     renderStatusBoard();
     if (state.selectedRoomId) {
       renderRoomDetail(getRoomById(state.selectedRoomId));
@@ -413,18 +459,10 @@ function getRoomById(id) {
 }
 
 function setInitialRoomSelection() {
-  if (state.selectedRoomId && getRoomById(state.selectedRoomId)) {
-    renderRoomDetail(getRoomById(state.selectedRoomId));
-    highlightSelectedCard();
-    return;
-  }
-
-  const firstRoom = state.rooms[0];
-  if (firstRoom) {
-    state.selectedRoomId = firstRoom.id;
-    renderRoomDetail(firstRoom);
-    highlightSelectedCard();
-  }
+  const room = getRoomById(state.selectedRoomId) || state.rooms[0];
+  state.selectedRoomId = room?.id ?? null;
+  renderRoomDetail(room);
+  highlightSelectedCard();
 }
 
 function roomMatchesQuery(room, query) {
@@ -440,9 +478,14 @@ function roomMatchesQuery(room, query) {
   );
 }
 
-function getSectionsForDay(sections, dayCode) {
+function getSectionsForDay(sections, dayCode, now = state.hkNow) {
+  const date = now.weekDates[dayCode];
   return sections
-    .filter((section) => section.days.includes(dayCode))
+    .filter((section) =>
+      section.days.includes(dayCode) &&
+      (!section.start_date || section.start_date <= date) &&
+      (!section.end_date || date <= section.end_date)
+    )
     .sort((a, b) => a.startMinutes - b.startMinutes);
 }
 
@@ -465,17 +508,23 @@ function parseTimeToMinutes(timeStr) {
   return hours * 60 + minutes;
 }
 
-function formatClock(date) {
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  return `${hours}:${minutes}`;
-}
-
-function getHKNow() {
-  const hkDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
-  const dayCode = weekdayFromIndex[hkDate.getDay()];
-  const minutes = hkDate.getHours() * 60 + hkDate.getMinutes();
-  return { date: hkDate, dayCode, minutes };
+function getHKNow(now = new Date()) {
+  const { year, month, day, hour, minute } = Object.fromEntries(
+    hkDateTime.formatToParts(now).map(({ type, value }) => [type, value])
+  );
+  const date = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  const dayIndex = (date.getUTCDay() + 6) % 7;
+  const monday = date.getTime() - dayIndex * millisecondsPerDay;
+  const weekDates = Object.fromEntries(dayOrder.map((code, index) => [
+    code,
+    new Date(monday + index * millisecondsPerDay).toISOString().slice(0, 10),
+  ]));
+  return {
+    dayCode: dayOrder[dayIndex],
+    weekDates,
+    clock: `${hour}:${minute}`,
+    minutes: Number(hour) * 60 + Number(minute),
+  };
 }
 
 init();

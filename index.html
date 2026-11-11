@@ -12,7 +12,7 @@
 <body>
   <header class="site-header">
     <div class="hero-copy">
-      <p class="eyebrow">HKUST · Spring 2025/26</p>
+      <p class="eyebrow" id="termLabel">HKUST</p>
       <h1>Find an Empty Room Right Now</h1>
       <p class="lede">You can grab a study spot without wandering across campus.</p>
       <div class="meta-grid">
@@ -24,7 +24,7 @@
     </div>
     <div class="hero-actions">
       <button id="refreshButton" class="ghost-button" type="button">Refresh data</button>
-      <p class="status-note" id="statusNote">Using live schedule.json</p>
+      <p class="status-note" id="statusNote" role="status">Loading schedule…</p>
     </div>
   </header>
 
@@ -95,7 +95,7 @@
             <p class="meta-value" id="detailUpcoming">—</p>
           </div>
           <div>
-            <p class="meta-label">Total slots today</p>
+            <p class="meta-label">Slots on timeline</p>
             <p class="meta-value" id="detailSlotCount">—</p>
           </div>
         </div>
@@ -117,7 +117,7 @@
               <p class="eyebrow">Week overview</p>
               <h3>Mon → Sun</h3>
             </div>
-            <p class="meta-label">Course slots grouped by weekday</p>
+            <p class="meta-label">This week’s classes</p>
           </div>
           <div id="weekGrid" class="week-grid"></div>
         </div>
@@ -126,9 +126,9 @@
   </main>
 
   <footer class="site-footer">
-    <p>Data sourced from HKUST course offerings via scraper.py. Built for GitHub Pages + local `python -m http.server`.</p>
+    <p>Based on the HKUST class schedule. <a href="data/schedule.json" download>Download course data (JSON)</a></p>
   </footer>
 
-  <script src="assets/app.js" type="module"></script>
+  <script src="assets/app.js?v=2" type="module"></script>
 </body>
 </html>
